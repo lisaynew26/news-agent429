@@ -1,0 +1,39 @@
+name: Daily News Agent
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # UTC 0点，北京时间8点
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # 强制使用 Node 24，消除警告
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4        # 最新版
+
+    - name: Setup Python
+      uses: actions/setup-python@v5    # 最新版
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: pip install feedparser requests
+
+    - name: Run news agent
+      env:
+        DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      run: python news_agent.py
+
+    - name: Deploy to Pages
+      uses: peaceiris/actions-gh-pages@v4   # 最新版
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./
+        publish_branch: gh-pages
+        force_orphan: true
