@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-新闻 Agent：抓取热榜 → 六大分类 → DeepSeek 摘要 → 输出 HTML
-已优化错误处理，确保某源失败不影响整体
+新闻 Agent（周报版）：每周抓取热榜 → 六大分类 → DeepSeek 生成“本周摘要” → 输出 HTML
 """
-import os, sys, traceback, feedparser, requests
-from datetime import datetime
+import os, feedparser, requests
+from datetime import datetime, timedelta
 from collections import defaultdict
 
 RSSHUB_BASE = "https://rsshub.app"
@@ -57,9 +56,8 @@ def fetch_hot_news():
     all_entries = []
     for route in HOT_ROUTES:
         url = f"{RSSHUB_BASE}{route}"
-        source = route.split("/")[-1]  # 用路由尾缀做临时来源名
+        source = route.split("/")[-1]
         all_entries.extend(safe_fetch(url, source))
-    # 去重
     seen = set()
     dedup = []
     for item in all_entries:
@@ -87,7 +85,7 @@ def build_prompt(classified):
         for i, a in enumerate(arts, 1):
             lines.append(f"{i}. {a['title']} （来源：{a['source']}）")
         parts.append("\n".join(lines))
-    return "\n\n".join(parts) if parts else "今日无相关新闻"
+    return "\n\n".join(parts) if parts else "本周无相关新闻"
 
 def deepseek_summary(prompt):
     if not DEEPSEEK_API_KEY:
@@ -96,9 +94,11 @@ def deepseek_summary(prompt):
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
         "Content-Type": "application/json"
     }
-    system = ("你是资深时政科技编辑。根据下面各类新闻标题，用简洁中文分六段总结今日要闻，每段不超过60字，"
-              "顺序为：🤖 AI进展、🚀 科技产业、🏢 互联网巨头、🇨🇳 中国政策、💰 中国经济、🇺🇸 美国要闻。"
-              "只输出内容，不用Markdown，某类无新闻则写“今日无重要动态”。")
+    system = (
+        "你是资深时政科技编辑。根据下面各类新闻标题，用简洁中文分六段总结本周要闻，每段不超过80字，"
+        "顺序为：🤖 AI进展、🚀 科技产业、🏢 互联网巨头、🇨🇳 中国政策、💰 中国经济、🇺🇸 美国要闻。"
+        "只输出内容，不用Markdown，某类无新闻则写“本周无重要动态”。"
+    )
     payload = {
         "model": "deepseek-chat",
         "messages": [
@@ -106,7 +106,7 @@ def deepseek_summary(prompt):
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.3,
-        "max_tokens": 700
+        "max_tokens": 800
     }
     try:
         r = requests.post(DEEPSEEK_API_URL, json=payload, headers=headers, timeout=40)
@@ -116,8 +116,13 @@ def deepseek_summary(prompt):
         return f"摘要生成失败: {e}"
 
 def generate_html(classified, summary):
-    today = datetime.now().strftime("%Y-%m-%d")
-    title = f"📰 {today} AI 每日精选"
+    today = datetime.now()
+    # 计算本周一的日期
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    date_range = f"{monday.strftime('%m/%d')} - {sunday.strftime('%m/%d')}"
+    title = f"📰 本周 AI 精选 ({date_range})"
+
     summary_lines = summary.split("\n")
     summary_html = "".join(f"<p>{line.strip()}</p>" for line in summary_lines if line.strip())
 
@@ -155,7 +160,7 @@ a:hover {{ text-decoration: underline; }}
 <h1>{title}</h1>
 <div class="summary">{summary_html}</div>
 {categories_html}
-<div class="footer">由新闻AI Agent自动生成 · 每日08:00更新</div>
+<div class="footer">由新闻AI Agent自动生成 · 每周一更新</div>
 </body>
 </html>"""
     return html
